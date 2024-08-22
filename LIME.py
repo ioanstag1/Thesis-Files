@@ -108,9 +108,10 @@ if __name__ == "__main__":
     all_image_names = os.listdir(images_folder)
     #target_image_names = random.sample(all_image_names, 50)  # Pick 50 random images
     target_image_names = [
-     "malignant(280).png", "malignant(786).png"
+        "benign(53).png", "malignant(425).png", "malignant(938).png", "benign(191).png", "benign(433).png",
+        "benign(441).png", "malignant(10).png", "malignant(100).png", "malignant(1083).png", "malignant(1090).png",
+        "benign(164).png", "benign(20).png", "malignant(280).png", "malignant(786).png"
     ]
-
     for image_name in target_image_names:
         img_path = os.path.join(images_folder, image_name)
         if os.path.exists(img_path):
