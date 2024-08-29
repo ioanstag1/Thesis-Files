@@ -26,25 +26,6 @@ class DropPath(nn.Module):
     def forward(self, x):
         return drop_path(x, self.drop_prob, self.training)
 
-
-class ResDWC(nn.Module):
-    def __init__(self, dim, kernel_size=3):
-        super().__init__()
-        
-        self.dim = dim
-        self.kernel_size = kernel_size
-        
-        self.conv = nn.Conv2d(dim, dim, kernel_size, 1, kernel_size//2, groups=dim)
-                
-        # self.conv_constant = nn.Parameter(torch.eye(kernel_size).reshape(dim, 1, kernel_size, kernel_size))
-        # self.conv_constant.requires_grad = False
-        
-    def forward(self, x):
-        # return F.conv2d(x, self.conv.weight+self.conv_constant, self.conv.bias, stride=1, padding=self.kernel_size//2, groups=self.dim) # equal to x + conv(x)
-        return x + self.conv(x)
-
-
-
 class Attention(nn.Module):
     def __init__(self, dim, hidden_dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
         super().__init__()
@@ -98,97 +79,7 @@ class Mlp(nn.Module):
         x = self.drop2(x)
         return x
 
-
-class Merge(nn.Module):
-    def __init__(self, in_dim, out_dim, patch_size,dim, stoken_size, num_heads, qkv_bias, attn_drop, proj_drop,mlp_ratio,act_layer=nn.GELU, drop = 0.,drop_path=0., in_chans=3,n_iter=1):
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_dim * 2, in_dim * 4, kernel_size=1, stride=1),
-            nn.BatchNorm2d(in_dim * 4),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_dim * 4, in_dim * 4, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(in_dim * 4),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_dim * 4, out_dim, kernel_size=1, stride=1),
-            nn.BatchNorm2d(out_dim),
-            nn.ReLU(inplace=True),
-        )
-        self.stoken_size = stoken_size
-        self.in_dim = in_dim
-        self.patch_size = patch_size
-        self.norm_in = nn.LayerNorm(in_dim)
-        self.norm_out = nn.LayerNorm(out_dim)
-        #stoken attention
-        # self.stoken_attention = StokenAttention(dim=out_dim, stoken_size=stoken_size, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=proj_drop,n_iter=1)
-
-        # self.pos_embed = ResDWC(out_dim, 3)
-                                        
-        # self.norm1 = LayerNorm2d(out_dim)
-                    
-        # self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        
-        # self.norm2 = nn.BatchNorm2d(out_dim)
-        # self.mlp2 = MlpS(in_features=out_dim, hidden_features=int(out_dim * mlp_ratio), out_features=out_dim, act_layer=act_layer, drop=drop)
-
-        self.stoken_attention = StokenAttention(dim=in_dim, stoken_size=stoken_size, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=proj_drop,n_iter=3)
-
-        self.pos_embed = ResDWC(in_dim, 3)
-                                        
-        self.norm1 = LayerNorm2d(in_dim)
-                    
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        
-        self.norm2 = nn.BatchNorm2d(in_dim)
-        self.mlp2 = MlpS(in_features=in_dim, hidden_features=int(in_dim * mlp_ratio), out_features=in_dim, act_layer=act_layer, drop=drop)
-
-    def forward(self, pixel_embed1, pixel_embed2):
-        H_p = W_p = self.patch_size
-        W_column = pixel_embed1.size(1)
-        BW_column, H_row, _ = pixel_embed2.size()
-        B = BW_column // W_column
-        assert H_row == W_column
-
-        img1 = pixel_embed1.reshape(B, H_row, W_column, H_p, W_p, self.in_dim).permute(0, 5, 1, 3, 2, 4).reshape(B, self.in_dim, H_row * H_p, W_column * W_p)
-        img2 = pixel_embed2.reshape(B, H_row, W_column, H_p, W_p, self.in_dim).permute(0, 5, 1, 3, 2, 4).reshape(B, self.in_dim, H_row * H_p, W_column * W_p)
-        # img_reshaped = torch.cat([img1, img2], dim=1)
-        # img_merge = self.conv(img_reshaped)
-        # visualize_attention_maps(img_merge, title="Image Merge")
-        # if self.stoken_size>(1,1): 
-        #     img_merge = self.pos_embed(img_merge)
-        #     #img_merge = self.stoken_attention(img_merge)
-        #     #visualize_attention_maps(img_merge, title="Image Merge after Superpixel")
-        #     img_merge = img_merge + self.drop_path(self.stoken_attention(self.norm1(img_merge)))
-        #     img_merge = img_merge + self.drop_path(self.mlp2(self.norm2(img_merge)))    
-        #     visualize_attention_maps(img_merge, title="Image Merge after Superpixel")
-        #     # Apply StokenAttention and MLP to img1 and img2 separately
-        if self.stoken_size > (1, 1):
-            # visualize_attention_maps(img1, title="Image 1 before Superpixel Attention")
-            # visualize_attention_maps(img2, title="Image 2 before Superpixel Attention")
-        
-            img1 = self.pos_embed(img1)
-            img1 = img1 + self.drop_path(self.stoken_attention(self.norm1(img1)))
-            img1 = img1 + self.drop_path(self.mlp2(self.norm2(img1)))
-            
-            img2 = self.pos_embed(img2)
-            img2 = img2 + self.drop_path(self.stoken_attention(self.norm1(img2)))
-            img2 = img2 + self.drop_path(self.mlp2(self.norm2(img2)))
-            
-            # Visualize attention maps after applying StokenAttention to img1 and img2
-            # visualize_attention_maps(img1, title="Image 1 after Superpixel Attention")
-            # visualize_attention_maps(img2, title="Image 2 after Superpixel Attention")
-        
-        # Concatenate img1 and img2
-        img_reshaped = torch.cat([img1, img2], dim=1)
-        
-        # Apply convolutional layers to merged images
-        img_merge = self.conv(img_reshaped)
-        
-        # Visualize the final merged image
-        #visualize_attention_maps(img_merge, title="Final Merged Image")
-          
-        return img_merge
-
-
+#SuperToken Selection Module - from SPFormer , full code on : https://github.com/hhb072/STViT/blob/main/models/stvit.py#L206
 class Unfold(nn.Module):
     def __init__(self, kernel_size=3):
         super().__init__()
@@ -219,12 +110,10 @@ class Fold(nn.Module):
         b, _, h, w = x.shape
         x = F.conv_transpose2d(x, self.weights, stride=1, padding=self.kernel_size // 2)
         return x
+        
 #Visualisation 
-
 import matplotlib.pyplot as plt
 import os
-
-
 def visualize_attention_maps(attention_maps, title="Attention Map"):
     """
     Visualize attention maps.
@@ -254,44 +143,22 @@ def visualize_attention_maps(attention_maps, title="Attention Map"):
     plt.suptitle(title)
     plt.tight_layout()
     plt.show()
-# def visualize_attention_maps(attention_maps, save_dir="attention_maps", title="Attention Map"):
-#     """
-#     Visualize and save attention maps.
-
-#     Parameters:
-#     attention_maps (torch.Tensor): The attention maps to visualize and save. Expected shape: (B, num_heads, H, W)
-#     save_dir (str): The directory where the images will be saved.
-#     title (str): The title prefix for the saved images.
-#     """
-#     # Ensure the directory exists
-#     os.makedirs(save_dir, exist_ok=True)
-    
-#     attention_maps = attention_maps.detach().cpu()
-#     B, num_heads, H, W = attention_maps.shape
-
-#     for i in range(num_heads):
-#         fig, ax = plt.subplots(figsize=(5, 5))
-#         im = ax.imshow(attention_maps[0, i].numpy(), cmap='viridis')
-#         ax.set_title(f"Head {i + 1}")
-#         fig.colorbar(im, ax=ax)
-#         ax.axis('off')
+#Position Embedding
+class ResDWC(nn.Module):
+    def __init__(self, dim, kernel_size=3):
+        super().__init__()
         
-#         # Save each attention map as an image
-#         filename = os.path.join(save_dir, f"{title}_head_{i + 1}.png")
-#         plt.savefig(filename)
-#         plt.close(fig)
-
-#     print(f"Saved attention maps to directory: {save_dir}")
-    
-#     # Display the images
-#     for i in range(num_heads):
-#         plt.imshow(attention_maps[0, i].numpy(), cmap='viridis')
-#         plt.title(f"{title} Head {i + 1}")
-#         plt.colorbar()
-#         plt.show()
-
-import matplotlib.pyplot as plt
-
+        self.dim = dim
+        self.kernel_size = kernel_size
+        
+        self.conv = nn.Conv2d(dim, dim, kernel_size, 1, kernel_size//2, groups=dim)
+                
+        # self.conv_constant = nn.Parameter(torch.eye(kernel_size).reshape(dim, 1, kernel_size, kernel_size))
+        # self.conv_constant.requires_grad = False
+        
+    def forward(self, x):
+        # return F.conv2d(x, self.conv.weight+self.conv_constant, self.conv.bias, stride=1, padding=self.kernel_size//2, groups=self.dim) # equal to x + conv(x)
+        return x + self.conv(x)
 
 class AttentionS(nn.Module):
     def __init__(self, dim, window_size=None, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
@@ -327,7 +194,7 @@ class AttentionS(nn.Module):
         x = self.proj_drop(x)
         # print("output shape:", x.shape)
         return x
-
+        
 class LayerNorm2d(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -336,7 +203,7 @@ class LayerNorm2d(nn.Module):
         
     def forward(self, x):
         return self.norm(x.permute(0, 2, 3, 1).contiguous()).permute(0, 3, 1, 2).contiguous()
-        
+
 class MlpS(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., conv_pos=True, downsample=False, kernel_size=5):
         super().__init__()
@@ -405,35 +272,24 @@ class StokenAttention(nn.Module):
         hh, ww = H // h, W // w
 
         stoken_features = F.adaptive_avg_pool2d(x, (hh, ww))  # (B, C, hh, ww)
-        #print(f"stoken_features after pooling: {stoken_features.shape}")
         pixel_features = x.reshape(B, C, hh, h, ww, w).permute(0, 2, 4, 3, 5, 1).reshape(B, hh * ww, h * w, C)
-        #print(f"pixel_features after reshape and permute: {pixel_features.shape}")
 
         with torch.no_grad():
             for idx in range(self.n_iter):
                 stoken_features = self.unfold(stoken_features)  # (B, C*9, hh*ww)
-                #print(f"stoken_features after unfold: {stoken_features.shape}")
                 stoken_features = stoken_features.transpose(1, 2).reshape(B, hh * ww, C, 9)
-                #print(f"stoken_features after transpose and reshape: {stoken_features.shape}")
                 affinity_matrix = pixel_features @ stoken_features * self.scale  # (B, hh*ww, h*w, 9)
-                #print(f"affinity_matrix: {affinity_matrix.shape}")
                 affinity_matrix = affinity_matrix.softmax(-1)  # (B, hh*ww, h*w, 9)
                 affinity_matrix_sum = affinity_matrix.sum(2).transpose(1, 2).reshape(B, 9, hh, ww)
                 affinity_matrix_sum = self.fold(affinity_matrix_sum)
-                #print(f"affinity_matrix_sum: {affinity_matrix_sum.shape}")
                 if idx < self.n_iter - 1:
                     stoken_features = pixel_features.transpose(-1, -2) @ affinity_matrix  # (B, hh*ww, C, 9)
                     stoken_features = self.fold(stoken_features.permute(0, 2, 3, 1).reshape(B * C, 9, hh, ww)).reshape(B, C, hh, ww)
                     stoken_features = stoken_features / (affinity_matrix_sum + 1e-12)
-                    #print(f"stoken_features after iteration {idx}: {stoken_features.shape}")
 
         stoken_features = pixel_features.transpose(-1, -2) @ affinity_matrix  # (B, hh*ww, C, 9)
-        #print(f"stoken_features before fold: {stoken_features.shape}")
         stoken_features = self.fold(stoken_features.permute(0, 2, 3, 1).reshape(B * C, 9, hh, ww)).reshape(B, C, hh, ww)
-       #print(f"stoken_features after fold: {stoken_features.shape}")
         stoken_features = stoken_features / (affinity_matrix_sum.detach() + 1e-12)
-        #print(f"stoken_features after normalization: {stoken_features.shape}")
-
         if self.refine:
             if self.refine_attention:
                 stoken_features = self.stoken_refine(stoken_features)
@@ -442,19 +298,13 @@ class StokenAttention(nn.Module):
             #print(f"stoken_features after refinement: {stoken_features.shape}")
 
         stoken_features = self.unfold(stoken_features)  # (B, C*9, hh*ww)
-        #print(f"stoken_features after unfold (post-refinement): {stoken_features.shape}")
         stoken_features = stoken_features.transpose(1, 2).reshape(B, hh * ww, C, 9)  # (B, hh*ww, C, 9)
-        #print(f"stoken_features after transpose and reshape (post-refinement): {stoken_features.shape}")
         pixel_features = stoken_features @ affinity_matrix.transpose(-1, -2)  # (B, hh*ww, C, h*w)
-        #print(f"pixel_features after matrix multiplication: {pixel_features.shape}")
         pixel_features = pixel_features.reshape(B, hh, ww, C, h, w).permute(0, 3, 1, 4, 2, 5).reshape(B, C, H, W)
-        #print(f"pixel_features after reshape and permute: {pixel_features.shape}")
-
         if pad_r > 0 or pad_b > 0:
             pixel_features = pixel_features[:, :, :H0, :W0]
 
         # Visualize the supertokens
-        #print(pixel_features)
         #visualize_attention_maps(pixel_features, title="Supertokens")
         return pixel_features
 
@@ -475,6 +325,77 @@ class StokenAttention(nn.Module):
             return self.direct_forward(x)
 
 
+
+class Merge(nn.Module):
+    def __init__(self, in_dim, out_dim, patch_size,dim, stoken_size, num_heads, qkv_bias, attn_drop, proj_drop,mlp_ratio,act_layer=nn.GELU, drop = 0.,drop_path=0., in_chans=3,n_iter=1):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_dim * 2, in_dim * 4, kernel_size=1, stride=1),
+            nn.BatchNorm2d(in_dim * 4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_dim * 4, in_dim * 4, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(in_dim * 4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_dim * 4, out_dim, kernel_size=1, stride=1),
+            nn.BatchNorm2d(out_dim),
+            nn.ReLU(inplace=True),
+        )
+        self.stoken_size = stoken_size
+        self.in_dim = in_dim
+        self.patch_size = patch_size
+        self.norm_in = nn.LayerNorm(in_dim)
+        self.norm_out = nn.LayerNorm(out_dim)
+        
+        #SuperToken Cross-Attention Layer
+        self.stoken_attention = StokenAttention(dim=in_dim, stoken_size=stoken_size, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=proj_drop,n_iter=3)
+
+        self.pos_embed = ResDWC(in_dim, 3)
+                                        
+        self.norm1 = LayerNorm2d(in_dim)
+                    
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        
+        self.norm2 = nn.BatchNorm2d(in_dim)
+        self.mlp2 = MlpS(in_features=in_dim, hidden_features=int(in_dim * mlp_ratio), out_features=in_dim, act_layer=act_layer, drop=drop)
+
+    def forward(self, pixel_embed1, pixel_embed2):
+        H_p = W_p = self.patch_size
+        W_column = pixel_embed1.size(1)
+        BW_column, H_row, _ = pixel_embed2.size()
+        B = BW_column // W_column
+        assert H_row == W_column
+
+        img1 = pixel_embed1.reshape(B, H_row, W_column, H_p, W_p, self.in_dim).permute(0, 5, 1, 3, 2, 4).reshape(B, self.in_dim, H_row * H_p, W_column * W_p)
+        img2 = pixel_embed2.reshape(B, H_row, W_column, H_p, W_p, self.in_dim).permute(0, 5, 1, 3, 2, 4).reshape(B, self.in_dim, H_row * H_p, W_column * W_p)
+        
+        # Apply StokenAttention and MLP to img1 and img2 separately
+        if self.stoken_size > (1, 1):
+            # visualize_attention_maps(img1, title="Image 1 before Superpixel Attention")
+            # visualize_attention_maps(img2, title="Image 2 before Superpixel Attention")
+        
+            img1 = self.pos_embed(img1)
+            img1 = img1 + self.drop_path(self.stoken_attention(self.norm1(img1)))
+            img1 = img1 + self.drop_path(self.mlp2(self.norm2(img1)))
+            
+            img2 = self.pos_embed(img2)
+            img2 = img2 + self.drop_path(self.stoken_attention(self.norm1(img2)))
+            img2 = img2 + self.drop_path(self.mlp2(self.norm2(img2)))
+            
+            # Visualize attention maps after applying StokenAttention to img1 and img2
+            # visualize_attention_maps(img1, title="Image 1 after Superpixel Attention")
+            # visualize_attention_maps(img2, title="Image 2 after Superpixel Attention")
+        
+        # Concatenate img1 and img2
+        img_reshaped = torch.cat([img1, img2], dim=1)
+        
+        # Apply convolutional layers to merged images
+        img_merge = self.conv(img_reshaped)
+        
+        # Visualize the final merged image
+        #visualize_attention_maps(img_merge, title="Final Merged Image")
+          
+        return img_merge
+        
 class Block(nn.Module):
     def __init__(self, dim, words_in_sentence, patch_size, sentences, in_chans=3, num_heads=2, num_inner_heads=4, mlp_ratio=4.,
             qkv_bias=False, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
